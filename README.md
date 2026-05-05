@@ -15,7 +15,7 @@ A Streamlit app for tagging zero-size colonies in high-throughput bacterial grow
 
 Plate images and IRIS measurements are publicly available on Zenodo:
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20044650.svg)](https://doi.org/10.5281/zenodo.20044650)
+DOI: [10.5281/zenodo.20044650](https://doi.org/10.5281/zenodo.20044650)
 
 Download your assigned zip file and extract it into the `data/` folder:
 
