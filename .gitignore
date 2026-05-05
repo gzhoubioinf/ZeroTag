@@ -1,0 +1,7 @@
+data/person1/
+data/person2/
+annotations/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
