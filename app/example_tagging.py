@@ -57,39 +57,70 @@ def load_example_images(directory):
     return ordered_examples
 
 def update_plate_selection():
-    """Callback to update the plate selection when the condition changes."""
-    # This function is called AFTER st.session_state.selected_condition has been updated by the selectbox
+    """Callback to reset plate/batch when the condition selectbox changes."""
     iris_directory = st.session_state.config['directories']['iris_directory']
     plate_numbers = get_plate_numbers(iris_directory, st.session_state.selected_condition)
-    
-    # When condition changes, reset everything to start fresh
     if plate_numbers:
-        st.session_state.selected_plate = plate_numbers[0]
+        first_plate = plate_numbers[0]
+        batches = get_batch_numbers(iris_directory, st.session_state.selected_condition, first_plate)
+        st.session_state.selected_plate = first_plate
+        st.session_state.selected_batch = batches[0] if batches else 1
     else:
         st.session_state.selected_plate = None
-    
-    # Crucially, reset all other dependent states
-    st.session_state.selected_batch = None
+        st.session_state.selected_batch = None
     st.session_state.zero_colonies = None
     st.session_state.current_colony_idx = 0
     st.session_state.annotations = {}
 
-def go_to_next_plate():
-    """Callback to advance to the next plate."""
-    image_directory = st.session_state.config['directories']['image_directory']
-    plate_numbers = get_plate_numbers(image_directory, st.session_state.selected_condition)
-    current_plate_index = plate_numbers.index(st.session_state.selected_plate)
-    
-    if current_plate_index < len(plate_numbers) - 1:
-        next_plate = plate_numbers[current_plate_index + 1]
+
+def advance_to_next_plate(iris_directory):
+    """Advance to the next plate within condition, or first plate of next condition.
+    Returns True if advanced, False if already at the last plate."""
+    conditions = get_conditions(iris_directory)
+    curr_cond = st.session_state.get('selected_condition')
+    curr_plate = st.session_state.get('selected_plate')
+
+    if not curr_cond or curr_plate is None:
+        return False
+
+    plate_numbers = get_plate_numbers(iris_directory, curr_cond)
+    try:
+        curr_plate_idx = plate_numbers.index(curr_plate)
+    except ValueError:
+        curr_plate_idx = len(plate_numbers)  # treat as past the end
+
+    # Next plate within the same condition
+    if curr_plate_idx < len(plate_numbers) - 1:
+        next_plate = plate_numbers[curr_plate_idx + 1]
+        batches = get_batch_numbers(iris_directory, curr_cond, next_plate)
         st.session_state.selected_plate = next_plate
-        # Reset state for the new plate
+        st.session_state.selected_batch = batches[0] if batches else 1
         st.session_state.zero_colonies = None
         st.session_state.current_colony_idx = 0
         st.session_state.annotations = {}
-    else:
-        # This was the last plate
-        st.session_state.finished_condition = True
+        return True
+
+    # First plate of the next condition
+    try:
+        curr_cond_idx = conditions.index(curr_cond)
+    except ValueError:
+        curr_cond_idx = len(conditions)
+
+    if curr_cond_idx < len(conditions) - 1:
+        next_cond = conditions[curr_cond_idx + 1]
+        next_plates = get_plate_numbers(iris_directory, next_cond)
+        if next_plates:
+            next_plate = next_plates[0]
+            batches = get_batch_numbers(iris_directory, next_cond, next_plate)
+            st.session_state.selected_condition = next_cond
+            st.session_state.selected_plate = next_plate
+            st.session_state.selected_batch = batches[0] if batches else 1
+            st.session_state.zero_colonies = None
+            st.session_state.current_colony_idx = 0
+            st.session_state.annotations = {}
+            return True
+
+    return False  # All plates done
 
 
 def example_tagging_app(config):
@@ -112,11 +143,19 @@ def example_tagging_app(config):
 
     image_directory = config['directories']['image_directory']
     iris_directory = config['directories']['iris_directory']
+
+    # Apply any pending navigation from the previous run (must happen before widgets render)
+    if st.session_state.get('pending_navigation') is not None:
+        nav = st.session_state.pending_navigation
+        st.session_state.pending_navigation = None
+        st.session_state.selected_condition = nav['condition']
+        st.session_state.selected_plate = nav['plate']
+        st.session_state.selected_batch = nav['batch']
     example_directory = "data/Example_images"
     annotations_directory = "annotations"
     os.makedirs(annotations_directory, exist_ok=True)
 
-    # --- Create a unified list of all plates and batches for seamless navigation ---
+    # --- Create a unified list of all plates and batches ---
     conditions = get_conditions(iris_directory)
     all_selections = []
     if conditions:
@@ -126,69 +165,6 @@ def example_tagging_app(config):
                 batches = get_batch_numbers(iris_directory, condition, plate)
                 for batch in batches:
                     all_selections.append({'condition': condition, 'plate': plate, 'batch': batch})
-
-    # --- Handle Inter-Plate Navigation ---
-    if all_selections and 'selected_condition' in st.session_state and 'selected_plate' in st.session_state and 'selected_batch' in st.session_state:
-        current_selection = {
-            'condition': st.session_state.selected_condition, 
-            'plate': st.session_state.selected_plate,
-            'batch': st.session_state.selected_batch
-        }
-        
-        try:
-            current_index = all_selections.index(current_selection)
-
-            if st.session_state.go_to_next_plate:
-                st.session_state.go_to_next_plate = False
-                if current_index < len(all_selections) - 1:
-                    next_item = all_selections[current_index + 1]
-                    st.session_state.selected_condition = next_item['condition']
-                    st.session_state.selected_plate = next_item['plate']
-                    st.session_state.selected_batch = next_item['batch']
-                    st.session_state.zero_colonies = None
-                    st.session_state.current_colony_idx = 0
-                    st.session_state.annotations = {}
-                    st.rerun()
-                else:
-                    st.info("This is the last batch of the last plate of the last condition.")
-
-            if st.session_state.go_to_previous_plate:
-                st.session_state.go_to_previous_plate = False
-                if current_index > 0:
-                    prev_item = all_selections[current_index - 1]
-                    st.session_state.selected_condition = prev_item['condition']
-                    st.session_state.selected_plate = prev_item['plate']
-                    st.session_state.selected_batch = prev_item['batch']
-                    st.session_state.zero_colonies = None
-                    st.session_state.current_colony_idx = 0
-                    st.session_state.annotations = {}
-                    st.rerun()
-                else:
-                    st.info("This is the first batch of the first plate of the first condition.")
-        except ValueError:
-            # Current selection not in list — clear stale navigation flags to avoid phantom jumps
-            st.session_state.go_to_next_plate = False
-            st.session_state.go_to_previous_plate = False
-    
-    # --- Handle automatic plate advancement ---
-    if st.session_state.get('plate_finished', False):
-        st.session_state.plate_finished = False # Reset the flag
-
-        plate_numbers = get_plate_numbers(iris_directory, st.session_state.selected_condition)
-        current_plate_index = plate_numbers.index(st.session_state.selected_plate)
-
-        if current_plate_index < len(plate_numbers) - 1:
-            next_plate = plate_numbers[current_plate_index + 1]
-            st.session_state.selected_plate = next_plate
-            st.info(f"Automatically moving to next plate: {next_plate}")
-            # Reset state for the new plate
-            st.session_state.zero_colonies = None
-            st.session_state.current_colony_idx = 0
-            st.session_state.annotations = {}
-            st.rerun() # Rerun to process the new plate
-        else:
-            st.success("All plates for this condition have been tagged!")
-            st.session_state.zero_colonies = "COMPLETED"
 
     example_images = load_example_images(example_directory)
 
@@ -246,14 +222,54 @@ def example_tagging_app(config):
         col1, col2, col3 = st.columns([1, 3, 1])
 
         with col2: # Place the button in the middle, wider column
-            if st.button("🔄 Reprocess Plate", 
-                        type="primary", 
+            if st.button("🔄 Reprocess Plate",
+                        type="primary",
                         use_container_width=True): # This makes the button fill the column
-                
+
                 st.session_state.zero_colonies = None # Reset
                 st.session_state.current_colony_idx = 0
                 st.session_state.annotations = {}
                 st.rerun()
+
+    # --- Navigation (placed after sidebar so Streamlit tracks widget state before any rerun) ---
+    if st.session_state.get('plate_finished', False):
+        st.session_state.plate_finished = False
+        st.session_state.go_to_next_plate = True
+
+    if all_selections and 'selected_condition' in st.session_state and 'selected_plate' in st.session_state and 'selected_batch' in st.session_state:
+        current_selection = {
+            'condition': st.session_state.selected_condition,
+            'plate': st.session_state.selected_plate,
+            'batch': st.session_state.selected_batch
+        }
+        try:
+            current_index = all_selections.index(current_selection)
+
+            if st.session_state.go_to_next_plate:
+                st.session_state.go_to_next_plate = False
+                if current_index < len(all_selections) - 1:
+                    st.session_state.pending_navigation = all_selections[current_index + 1]
+                    st.session_state.zero_colonies = None
+                    st.session_state.current_colony_idx = 0
+                    st.session_state.annotations = {}
+                    st.rerun()
+                else:
+                    st.info("All plates have been tagged!")
+                    st.session_state.zero_colonies = "COMPLETED"
+
+            if st.session_state.go_to_previous_plate:
+                st.session_state.go_to_previous_plate = False
+                if current_index > 0:
+                    st.session_state.pending_navigation = all_selections[current_index - 1]
+                    st.session_state.zero_colonies = None
+                    st.session_state.current_colony_idx = 0
+                    st.session_state.annotations = {}
+                    st.rerun()
+                else:
+                    st.info("This is the first batch of the first plate of the first condition.")
+        except ValueError:
+            st.session_state.go_to_next_plate = False
+            st.session_state.go_to_previous_plate = False
 
     # --- Automatic Processing ---
     # If there are no colonies loaded for the current plate, find them.
@@ -391,24 +407,17 @@ def example_tagging_app(config):
                 st.session_state.current_colony_idx += 1
                 st.rerun()
         
-        # --- Plate Navigation ---
+        # Display progress
         st.write("---")
-        if st.button("Go to Next Plate ⏩", use_container_width=True):
-            st.session_state.go_to_next_plate = True
-            st.rerun()
+        n_tagged = len(st.session_state.annotations)
+        n_total = len(st.session_state.zero_colonies)
+        st.write(f"**Progress:** {n_tagged} / {n_total} tagged.")
 
-        # Display progress and save option
-        st.write("---")
-        st.write(f"**Progress:** {len(st.session_state.annotations)} / {len(st.session_state.zero_colonies)} tagged.")
-        
-        if len(st.session_state.annotations) == len(st.session_state.zero_colonies):
-            st.balloons()
-            st.header("Tagging Complete!")
-            
+
+        def save_annotations():
             selected_condition = st.session_state.get('selected_condition', 'condition')
             selected_plate = st.session_state.get('selected_plate', 'plate')
             selected_batch = st.session_state.get('selected_batch', 'batch')
-
             df_annotations = pd.DataFrame([
                 {
                     'condition': selected_condition,
@@ -420,15 +429,32 @@ def example_tagging_app(config):
                 }
                 for (r, c), tag in st.session_state.annotations.items()
             ])
-            
-            # Auto-save the file
             filename = f"{selected_condition}_{selected_plate}_{selected_batch}_annotations.csv"
             filepath = os.path.join(annotations_directory, filename)
             df_annotations.to_csv(filepath, index=False)
-            st.success(f"Annotations automatically saved to `{filepath}`")
+            return filepath
 
+        if n_tagged == n_total:
+            st.balloons()
+            st.header("Tagging Complete!")
+            filepath = save_annotations()
+            st.success(f"Annotations automatically saved to `{filepath}`")
             st.session_state.plate_finished = True
             st.rerun()
+
+        # --- Plate Navigation ---
+        st.write("---")
+        col_save, col_next = st.columns(2)
+        with col_save:
+            if st.button("💾 Save & Next Plate", use_container_width=True, type="primary"):
+                filepath = save_annotations()
+                st.success(f"Saved to `{filepath}`")
+                st.session_state.plate_finished = True
+                st.rerun()
+        with col_next:
+            if st.button("Go to Next Plate ⏩", use_container_width=True):
+                st.session_state.go_to_next_plate = True
+                st.rerun()
     elif st.session_state.get('zero_colonies') == "COMPLETED":
         st.info("All colonies for the selected plate have been processed or no zero-size colonies were found.")
         if st.button("Go to Next Plate ⏩", use_container_width=True):
