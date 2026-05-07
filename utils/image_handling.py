@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 
 def crop_img(image_path):
     """ Loads an image from disk using OpenCV and returns it as a NumPy array in BGR order."""
@@ -28,7 +27,6 @@ def find_grid_by_cell_contours(img, num_rows=32, num_cols=48):
     expected_cell_h, expected_cell_w = img_h / num_rows, img_w / num_cols
     valid_cells = []
     for contour in contours:
-        area = cv2.contourArea(contour)
         x, y, w, h = cv2.boundingRect(contour)
 
         # Filter based on size and aspect ratio to find cell-like shapes
@@ -101,21 +99,3 @@ def extract_colony(img, row, col, num_rows=32, num_cols=48):
 
     return cell
 
-def make_square(image, size=150):
-    """Resizes an image to a square, padding if necessary to maintain aspect ratio."""
-    if image is None:
-        return np.zeros((size, size, 3), dtype=np.uint8) 
-        
-    h, w, _ = image.shape
-    if h == w:
-        return cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
-    
-    max_dim = max(h, w)
-    top = (max_dim - h) // 2
-    bottom = max_dim - h - top
-    left = (max_dim - w) // 2
-    right = max_dim - w - left
-    
-    padded_image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-    
-    return cv2.resize(padded_image, (size, size), interpolation=cv2.INTER_AREA)

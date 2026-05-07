@@ -5,7 +5,6 @@ import pandas as pd
 import cv2
 import numpy as np
 
-# Assuming these functions are in zerotag or a shared utils file
 from app.utils import get_conditions, get_plate_numbers, get_batch_numbers
 from utils.data_loading import get_colony_data as get_iris_data
 from utils.image_handling import extract_colony, find_grid_by_cell_contours, crop_img
@@ -73,55 +72,6 @@ def update_plate_selection():
     st.session_state.annotations = {}
 
 
-def advance_to_next_plate(iris_directory):
-    """Advance to the next plate within condition, or first plate of next condition.
-    Returns True if advanced, False if already at the last plate."""
-    conditions = get_conditions(iris_directory)
-    curr_cond = st.session_state.get('selected_condition')
-    curr_plate = st.session_state.get('selected_plate')
-
-    if not curr_cond or curr_plate is None:
-        return False
-
-    plate_numbers = get_plate_numbers(iris_directory, curr_cond)
-    try:
-        curr_plate_idx = plate_numbers.index(curr_plate)
-    except ValueError:
-        curr_plate_idx = len(plate_numbers)  # treat as past the end
-
-    # Next plate within the same condition
-    if curr_plate_idx < len(plate_numbers) - 1:
-        next_plate = plate_numbers[curr_plate_idx + 1]
-        batches = get_batch_numbers(iris_directory, curr_cond, next_plate)
-        st.session_state.selected_plate = next_plate
-        st.session_state.selected_batch = batches[0] if batches else 1
-        st.session_state.zero_colonies = None
-        st.session_state.current_colony_idx = 0
-        st.session_state.annotations = {}
-        return True
-
-    # First plate of the next condition
-    try:
-        curr_cond_idx = conditions.index(curr_cond)
-    except ValueError:
-        curr_cond_idx = len(conditions)
-
-    if curr_cond_idx < len(conditions) - 1:
-        next_cond = conditions[curr_cond_idx + 1]
-        next_plates = get_plate_numbers(iris_directory, next_cond)
-        if next_plates:
-            next_plate = next_plates[0]
-            batches = get_batch_numbers(iris_directory, next_cond, next_plate)
-            st.session_state.selected_condition = next_cond
-            st.session_state.selected_plate = next_plate
-            st.session_state.selected_batch = batches[0] if batches else 1
-            st.session_state.zero_colonies = None
-            st.session_state.current_colony_idx = 0
-            st.session_state.annotations = {}
-            return True
-
-    return False  # All plates done
-
 
 def example_tagging_app(config):
     st.title("Tag Zero-Size Colonies")
@@ -183,10 +133,7 @@ def example_tagging_app(config):
             st.rerun()
 
         st.header("Plate Selection")
-        
-        with st.spinner("Loading conditions..."):
-            conditions = get_conditions(iris_directory)
-        
+
         if not conditions:
             st.warning("No conditions found in the IRIS directory.")
             return
@@ -214,11 +161,6 @@ def example_tagging_app(config):
         
         st.selectbox("Select Batch", batches, key='selected_batch')
 
-        #if st.button("Reprocess Plate"):
-            #st.session_state.zero_colonies = None # Reset
-            #st.session_state.current_colony_idx = 0
-            #st.session_state.annotations = {}
-            #st.rerun()
         col1, col2, col3 = st.columns([1, 3, 1])
 
         with col2: # Place the button in the middle, wider column
@@ -308,7 +250,6 @@ def example_tagging_app(config):
             if iris_df is not None:
                 zero_colonies = iris_df[iris_df['colony size'] == 0]
                 if not zero_colonies.empty:
-                    st.session_state.plate_image_path = image_path
                     st.session_state.plate_image = plate_img
                     st.session_state.zero_colonies = zero_colonies.to_dict('records')
                     st.success(f"Found {len(zero_colonies)} colonies with size 0.")
@@ -367,11 +308,10 @@ def example_tagging_app(config):
         # Display example images as buttons
         st.write("Which example is most similar?")
 
-        image_buttons = example_images
         prefixes = ["A.", "B.", "C.", "D."]
 
-        cols = st.columns(len(image_buttons))
-        for i, (name, img) in enumerate(image_buttons):
+        cols = st.columns(len(example_images))
+        for i, (name, img) in enumerate(example_images):
             with cols[i]:
                 st.image(img, caption=name, width=150)
                 button_caption = f"{prefixes[i]} {name}"

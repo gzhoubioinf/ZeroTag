@@ -6,11 +6,10 @@ if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
 from example_tagging import example_tagging_app
-# from ml_prediction import app_fasta_prediction
 import streamlit as st
 
 
-def load_config(config_path='config/config.yaml'):
+def load_config(config_path):
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     return config
@@ -22,8 +21,6 @@ def main():
     config_path = "config/config_person1.yaml" if person == "Person 1" else "config/config_person2.yaml"
     config = load_config(config_path)
     example_tagging_app(config)
-    # else:
-    #     app_fasta_prediction(config)
 
 if __name__ == "__main__":
     main()
